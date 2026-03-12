@@ -74,10 +74,18 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    # Build connect_args for pg8000 SSL handling
+    connect_args = {}
+    if settings.database_engine is DatabaseChoice.POSTGRES and settings.pg_ssl:
+        import ssl as ssl_module
+
+        connect_args["ssl_context"] = ssl_module.create_default_context()
+
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        connect_args=connect_args,
     )
 
     with connectable.connect() as connection:

@@ -300,6 +300,7 @@ class Settings(BaseSettings):
     pool_pre_ping: bool = True  # Pre ping to check for dead connections
     pool_use_lifo: bool = True
     disable_sqlalchemy_pooling: bool = True
+    pg_ssl: bool = True  # Require SSL for PG connections (set LETTA_PG_SSL=false for internal networks without SSL)
     db_max_concurrent_sessions: Optional[int] = None
 
     redis_host: Optional[str] = Field(default=None, description="Host for Redis instance")

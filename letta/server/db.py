@@ -48,8 +48,8 @@ if not settings.disable_sqlalchemy_pooling:
         "statement_cache_size": 0,
         "prepared_statement_cache_size": 0,
     }
-    # Only add SSL if not already specified in connection string
-    if "sslmode" not in async_pg_uri and "ssl" not in async_pg_uri:
+    # Only add SSL if enabled and not already specified in connection string
+    if settings.pg_ssl and "sslmode" not in async_pg_uri and "ssl" not in async_pg_uri:
         connect_args["ssl"] = "require"
 
     engine_args["connect_args"] = connect_args
