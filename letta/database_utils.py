@@ -7,7 +7,7 @@ database-related components.
 """
 
 from typing import Optional
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 
 def parse_database_uri(uri: str) -> dict[str, Optional[str]]:
@@ -94,6 +94,20 @@ def build_database_uri(
     return urlunparse((full_scheme, netloc, path, "", query or "", fragment or ""))
 
 
+def _strip_ssl_params(query: Optional[str]) -> str:
+    """Strip ssl and sslmode parameters from a URI query string.
+
+    SSL is handled via connect_args per driver, not URI params, to avoid
+    driver incompatibilities (e.g. pg8000 does not accept sslmode).
+    """
+    if not query:
+        return ""
+    params = parse_qs(query, keep_blank_values=True)
+    params.pop("ssl", None)
+    params.pop("sslmode", None)
+    return urlencode(params, doseq=True)
+
+
 def convert_to_async_uri(uri: str) -> str:
     """
     Convert a database URI to use the asyncpg driver for async operations.
@@ -102,20 +116,17 @@ def convert_to_async_uri(uri: str) -> str:
         uri: Original database URI
 
     Returns:
-        URI with asyncpg driver and ssl parameter adjustments
+        URI with asyncpg driver and ssl/sslmode params stripped
     """
     components = parse_database_uri(uri)
 
     # Convert to asyncpg driver
     components["driver"] = "asyncpg"
 
-    # Build the new URI
-    new_uri = build_database_uri(**components)
+    # Strip ssl/sslmode from query — SSL is handled via connect_args
+    components["query"] = _strip_ssl_params(components.get("query"))
 
-    # Replace sslmode= with ssl= for asyncpg compatibility
-    new_uri = new_uri.replace("sslmode=", "ssl=")
-
-    return new_uri
+    return build_database_uri(**components)
 
 
 def convert_to_sync_uri(uri: str) -> str:
@@ -126,20 +137,17 @@ def convert_to_sync_uri(uri: str) -> str:
         uri: Original database URI
 
     Returns:
-        URI with pg8000 driver and sslmode parameter adjustments
+        URI with pg8000 driver and ssl/sslmode params stripped
     """
     components = parse_database_uri(uri)
 
     # Convert to pg8000 driver
     components["driver"] = "pg8000"
 
-    # Build the new URI
-    new_uri = build_database_uri(**components)
+    # Strip ssl/sslmode from query — SSL is handled via connect_args
+    components["query"] = _strip_ssl_params(components.get("query"))
 
-    # Replace ssl= with sslmode= for pg8000 compatibility
-    new_uri = new_uri.replace("ssl=", "sslmode=")
-
-    return new_uri
+    return build_database_uri(**components)
 
 
 def get_database_uri_for_context(uri: str, context: str = "async") -> str:
