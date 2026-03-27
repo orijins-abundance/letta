@@ -1831,3 +1831,109 @@ async def test_fork_conversation_messages_appear_in_list(conversation_manager, s
     assert "system_message" in message_types
     assert "user_message" in message_types
     assert "assistant_message" in message_types
+
+
+@pytest.mark.asyncio
+async def test_update_in_context_messages_no_position_collision(
+    conversation_manager, server: SyncServer, sarah_agent, default_user
+):
+    """Test that evicted messages don't collide with in-context message positions.
+
+    Regression test: after update_in_context_messages(), evicted messages kept
+    their old positions (0,1,2...) while new in-context messages were reassigned
+    to the same positions (0,1,2...). This caused list_conversation_messages()
+    to return messages in wrong order since it sorts by position without filtering
+    on in_context.
+    """
+    from letta.schemas.letta_message_content import TextContent
+    from letta.schemas.message import Message as PydanticMessage
+
+    # Create a conversation
+    conversation = await conversation_manager.create_conversation(
+        agent_id=sarah_agent.id,
+        conversation_create=CreateConversation(summary="Position collision test"),
+        actor=default_user,
+    )
+
+    # Create initial messages (simulating a conversation before compaction)
+    initial_messages = [
+        PydanticMessage(
+            agent_id=sarah_agent.id,
+            role="user" if i % 2 == 0 else "assistant",
+            content=[TextContent(text=f"Old message {i}")],
+        )
+        for i in range(6)
+    ]
+    created_initial = await server.message_manager.create_many_messages_async(
+        initial_messages, actor=default_user,
+    )
+    await conversation_manager.add_messages_to_conversation(
+        conversation_id=conversation.id,
+        agent_id=sarah_agent.id,
+        message_ids=[m.id for m in created_initial],
+        actor=default_user,
+    )
+
+    # Create new messages (simulating messages added after compaction summary)
+    new_messages = [
+        PydanticMessage(
+            agent_id=sarah_agent.id,
+            role="user",
+            content=[TextContent(text="New user message")],
+        ),
+        PydanticMessage(
+            agent_id=sarah_agent.id,
+            role="assistant",
+            content=[TextContent(text="New assistant response")],
+        ),
+    ]
+    created_new = await server.message_manager.create_many_messages_async(
+        new_messages, actor=default_user,
+    )
+    await conversation_manager.add_messages_to_conversation(
+        conversation_id=conversation.id,
+        agent_id=sarah_agent.id,
+        message_ids=[m.id for m in created_new],
+        actor=default_user,
+    )
+
+    # Simulate compaction: keep only the new messages in context
+    # (evict all initial messages, keep only the two new ones)
+    await conversation_manager.update_in_context_messages(
+        conversation_id=conversation.id,
+        in_context_message_ids=[created_new[0].id, created_new[1].id],
+        actor=default_user,
+    )
+
+    # Verify in-context messages are correct
+    in_context_ids = await conversation_manager.get_message_ids_for_conversation(
+        conversation_id=conversation.id,
+        actor=default_user,
+    )
+    assert len(in_context_ids) == 2
+    assert created_new[0].id in in_context_ids
+    assert created_new[1].id in in_context_ids
+
+    # CRITICAL: list_conversation_messages returns ALL messages (in-context + evicted)
+    # ordered by position. The new in-context messages should appear AFTER evicted ones
+    # (i.e., have higher position values) so they show as the "latest" messages.
+    all_messages = await conversation_manager.list_conversation_messages(
+        conversation_id=conversation.id,
+        actor=default_user,
+    )
+    assert len(all_messages) > 0
+
+    # When listing in descending order (newest first), the in-context messages
+    # should come first since they represent the current conversation state
+    desc_messages = await conversation_manager.list_conversation_messages(
+        conversation_id=conversation.id,
+        actor=default_user,
+        reverse=True,
+        limit=2,
+    )
+    # The two newest messages should be our new in-context messages
+    desc_contents = [m.content for m in desc_messages if hasattr(m, "content")]
+    assert any("New" in str(c) for c in desc_contents), (
+        f"Expected new in-context messages to appear first in descending order, "
+        f"but got: {desc_contents}"
+    )
