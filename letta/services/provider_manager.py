@@ -704,6 +704,35 @@ class ProviderManager:
                         },
                     )
 
+                # Check for soft-deleted model that blocks recreation (unique constraint limbo)
+                # This mirrors the provider-level restore logic at line ~82
+                # NOTE: We use raw SQLAlchemy here because list_async with organization_id=None
+                # generates `WHERE organization_id = NULL` (always false) instead of `IS NULL`
+                if not existing:
+                    org_filter = (
+                        ProviderModelORM.organization_id.is_(None)
+                        if organization_id is None
+                        else ProviderModelORM.organization_id == organization_id
+                    )
+                    stmt = select(ProviderModelORM).where(
+                        and_(
+                            ProviderModelORM.handle == llm_config.handle,
+                            org_filter,
+                            ProviderModelORM.model_type == "llm",
+                            ProviderModelORM.is_deleted == True,
+                        )
+                    ).limit(1)
+                    result = await session.execute(stmt)
+                    soft_deleted_model = result.scalars().first()
+                    if soft_deleted_model:
+                        soft_deleted_model.is_deleted = False
+                        soft_deleted_model.max_context_window = llm_config.context_window
+                        soft_deleted_model.model_endpoint_type = llm_config.model_endpoint_type
+                        soft_deleted_model.enabled = True
+                        await soft_deleted_model.update_async(session)
+                        logger.info(f"    Restored soft-deleted LLM model {llm_config.handle}")
+                        continue
+
                 if not existing:
                     logger.info(f"    Creating new LLM model {llm_config.handle}")
                     # Create new model entry
@@ -788,6 +817,33 @@ class ProviderManager:
                             "model_type": "embedding",
                         },
                     )
+
+                # Check for soft-deleted model that blocks recreation (unique constraint limbo)
+                if not existing:
+                    org_filter = (
+                        ProviderModelORM.organization_id.is_(None)
+                        if organization_id is None
+                        else ProviderModelORM.organization_id == organization_id
+                    )
+                    stmt = select(ProviderModelORM).where(
+                        and_(
+                            ProviderModelORM.handle == embedding_config.handle,
+                            org_filter,
+                            ProviderModelORM.model_type == "embedding",
+                            ProviderModelORM.is_deleted == True,
+                        )
+                    ).limit(1)
+                    result = await session.execute(stmt)
+                    soft_deleted_model = result.scalars().first()
+                    if soft_deleted_model:
+                        soft_deleted_model.is_deleted = False
+                        soft_deleted_model.model_endpoint_type = embedding_config.embedding_endpoint_type
+                        soft_deleted_model.enabled = True
+                        if hasattr(embedding_config, "embedding_dim") and embedding_config.embedding_dim:
+                            soft_deleted_model.embedding_dim = embedding_config.embedding_dim
+                        await soft_deleted_model.update_async(session)
+                        logger.info(f"    Restored soft-deleted embedding model {embedding_config.handle}")
+                        continue
 
                 if not existing:
                     logger.info(f"    Creating new embedding model {embedding_config.handle}")
