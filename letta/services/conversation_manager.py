@@ -581,6 +581,16 @@ class ConversationManager:
                 if message_id in conv_msg_dict:
                     conv_msg_dict[message_id].position = position
 
+            # Reassign evicted messages to negative positions to avoid collisions
+            # with the newly assigned 0,1,2... positions of in-context messages.
+            # Without this, list_conversation_messages() (which returns ALL messages
+            # ordered by position) would interleave evicted and in-context messages,
+            # causing newer in-context messages to appear "older" than evicted ones.
+            evicted = [cm for cm in conv_messages if not cm.in_context]
+            evicted.sort(key=lambda cm: cm.position)
+            for i, cm in enumerate(evicted):
+                cm.position = -(i + 1)
+
             await session.commit()
 
     @enforce_types
