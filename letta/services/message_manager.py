@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional, Sequence, Set, Tuple
 
-from sqlalchemy import delete, exists, func, select, text
+from sqlalchemy import delete, exists, func, or_, select, text
 
 from letta.constants import CONVERSATION_SEARCH_TOOL_NAME, DEFAULT_MESSAGE_TOOL, DEFAULT_MESSAGE_TOOL_KWARG
 from letta.log import get_logger
@@ -126,6 +126,29 @@ class MessageManager:
         """Initialize the MessageManager."""
         self.file_manager = FileManager()
 
+    def _is_heartbeat_message(self, message: PydanticMessage) -> bool:
+        """Check if a message is a heartbeat system message.
+
+        Heartbeat messages are system-role messages with content like {"type": "heartbeat", ...}.
+        """
+        if message.role != MessageRole.system:
+            return False
+        if not message.content:
+            return False
+        for content_item in message.content:
+            content_text = content_item.to_text() if hasattr(content_item, "to_text") else None
+            if not content_text:
+                content_text = getattr(content_item, "text", None)
+            if content_text:
+                try:
+                    if content_text.strip().startswith("{"):
+                        parsed = json.loads(content_text)
+                        if isinstance(parsed, dict) and parsed.get("type") == "heartbeat":
+                            return True
+                except (json.JSONDecodeError, ValueError):
+                    pass
+        return False
+
     def _extract_message_text(self, message: PydanticMessage) -> str:
         """Extract text content from a message's complex content structure.
 
@@ -243,8 +266,8 @@ class MessageManager:
         while i < len(messages):
             current_msg = messages[i]
 
-            # skip heartbeat messages
-            if self._extract_message_text(current_msg) == "":
+            # skip heartbeat system messages
+            if self._is_heartbeat_message(current_msg):
                 i += 1
                 continue
 
@@ -896,6 +919,8 @@ class MessageManager:
         include_err: Optional[bool] = None,
         run_id: Optional[str] = None,
         conversation_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
     ) -> List[PydanticMessage]:
         """
         Most performant query to list messages by directly querying the Message table.
@@ -964,27 +989,45 @@ class MessageManager:
             #    query = query.where((MessageModel.is_err == False) | (MessageModel.is_err.is_(None)))
 
             # If query_text is provided, filter messages using database-specific JSON search.
+            # Searches both message content AND tool_calls arguments (e.g. send_message text).
             if query_text:
                 if settings.database_engine is DatabaseChoice.POSTGRES:
                     # PostgreSQL: Use json_array_elements and ILIKE
                     content_element = func.json_array_elements(MessageModel.content).alias("content_element")
-                    query = query.where(
-                        exists(
-                            select(1)
-                            .select_from(content_element)
-                            .where(text("content_element->>'type' = 'text' AND content_element->>'text' ILIKE :query_text"))
-                            .params(query_text=f"%{query_text}%")
-                        )
+                    content_match = exists(
+                        select(1)
+                        .select_from(content_element)
+                        .where(text("content_element->>'type' = 'text' AND content_element->>'text' ILIKE :query_text"))
+                        .params(query_text=f"%{query_text}%")
                     )
+                    # Also search tool_calls arguments (agent responses via send_message, etc.)
+                    tool_calls_element = func.json_array_elements(MessageModel.tool_calls).alias("tool_calls_element")
+                    tool_calls_match = exists(
+                        select(1)
+                        .select_from(tool_calls_element)
+                        .where(text("tool_calls_element->'function'->>'arguments' ILIKE :query_text_tc"))
+                        .params(query_text_tc=f"%{query_text}%")
+                    )
+                    query = query.where(or_(content_match, tool_calls_match))
                 else:
-                    # SQLite: Use JSON_EXTRACT with individual array indices for case-insensitive search
-                    # Since SQLite doesn't support $[*] syntax, we'll use a different approach
-                    query = query.where(text("JSON_EXTRACT(content, '$') LIKE :query_text")).params(query_text=f"%{query_text}%")
+                    # SQLite: Use JSON_EXTRACT for case-insensitive search on content and tool_calls
+                    query = query.where(
+                        or_(
+                            text("JSON_EXTRACT(content, '$') LIKE :query_text"),
+                            text("JSON_EXTRACT(tool_calls, '$') LIKE :query_text_tc"),
+                        )
+                    ).params(query_text=f"%{query_text}%", query_text_tc=f"%{query_text}%")
 
             # If role(s) are provided, filter messages by those roles.
             if roles:
                 role_values = [r.value for r in roles]
                 query = query.where(MessageModel.role.in_(role_values))
+
+            # Apply date range filters if provided.
+            if start_date:
+                query = query.where(MessageModel.created_at >= start_date)
+            if end_date:
+                query = query.where(MessageModel.created_at <= end_date)
 
             # Apply 'after' pagination if specified.
             if after:
@@ -1210,6 +1253,8 @@ class MessageManager:
                     roles=roles,
                     limit=limit,
                     ascending=False,
+                    start_date=start_date,
+                    end_date=end_date,
                 )
                 combined_messages = self._combine_assistant_tool_messages(messages)
                 # Add basic metadata for SQL fallback
@@ -1230,6 +1275,8 @@ class MessageManager:
                 roles=roles,
                 limit=limit,
                 ascending=False,
+                start_date=start_date,
+                end_date=end_date,
             )
             combined_messages = self._combine_assistant_tool_messages(messages)
             # Add basic metadata for SQL search
