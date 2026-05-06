@@ -202,6 +202,14 @@ class OpenAIClient(LLMClientBase):
             if headers:
                 kwargs["default_headers"] = headers
 
+        # vLLM-specific override: use VLLM_API_KEY when the LLMConfig was registered
+        # by VLLMProvider (provider_name == "vllm"). Endpoints fronted by an auth proxy
+        # like LiteLLM need a Bearer token distinct from any OpenAI key.
+        if llm_config.provider_name == "vllm" and not has_byok_key:
+            vllm_key = model_settings.vllm_api_key or os.environ.get("VLLM_API_KEY")
+            if vllm_key:
+                kwargs["api_key"] = vllm_key
+
         # The OpenAI client requires some API key value
         kwargs["api_key"] = kwargs.get("api_key") or "DUMMY_API_KEY"
 
@@ -238,6 +246,14 @@ class OpenAIClient(LLMClientBase):
                 headers["X-Title"] = model_settings.openrouter_title
             if headers:
                 kwargs["default_headers"] = headers
+
+        # vLLM-specific override: use VLLM_API_KEY when the LLMConfig was registered
+        # by VLLMProvider (provider_name == "vllm"). Endpoints fronted by an auth proxy
+        # like LiteLLM need a Bearer token distinct from any OpenAI key.
+        if llm_config.provider_name == "vllm" and not has_byok_key:
+            vllm_key = model_settings.vllm_api_key or os.environ.get("VLLM_API_KEY")
+            if vllm_key:
+                kwargs["api_key"] = vllm_key
 
         kwargs["api_key"] = kwargs.get("api_key") or "DUMMY_API_KEY"
 

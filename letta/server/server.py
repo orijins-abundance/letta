@@ -290,6 +290,7 @@ class SyncServer(object):
                 VLLMProvider(
                     name="vllm",
                     base_url=vllm_url,
+                    api_key=model_settings.vllm_api_key,
                     default_prompt_formatter=model_settings.default_prompt_formatter,
                     handle_base=model_settings.vllm_handle_base,
                 )
