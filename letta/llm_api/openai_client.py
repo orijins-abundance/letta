@@ -210,6 +210,13 @@ class OpenAIClient(LLMClientBase):
             if vllm_key:
                 kwargs["api_key"] = vllm_key
 
+        # LiteLLM-specific override: use LITELLM_API_KEY when the LLMConfig was
+        # registered by LiteLLMProvider (provider_name == "litellm").
+        if llm_config.provider_name == "litellm" and not has_byok_key:
+            litellm_key = model_settings.litellm_api_key or os.environ.get("LITELLM_API_KEY")
+            if litellm_key:
+                kwargs["api_key"] = litellm_key
+
         # The OpenAI client requires some API key value
         kwargs["api_key"] = kwargs.get("api_key") or "DUMMY_API_KEY"
 
@@ -254,6 +261,13 @@ class OpenAIClient(LLMClientBase):
             vllm_key = model_settings.vllm_api_key or os.environ.get("VLLM_API_KEY")
             if vllm_key:
                 kwargs["api_key"] = vllm_key
+
+        # LiteLLM-specific override: use LITELLM_API_KEY when the LLMConfig was
+        # registered by LiteLLMProvider (provider_name == "litellm").
+        if llm_config.provider_name == "litellm" and not has_byok_key:
+            litellm_key = model_settings.litellm_api_key or os.environ.get("LITELLM_API_KEY")
+            if litellm_key:
+                kwargs["api_key"] = litellm_key
 
         kwargs["api_key"] = kwargs.get("api_key") or "DUMMY_API_KEY"
 
