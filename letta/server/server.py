@@ -55,6 +55,7 @@ from letta.schemas.providers import (
     GoogleVertexProvider,
     GroqProvider,
     LettaProvider,
+    LiteLLMProvider,
     LMStudioOpenAIProvider,
     MiniMaxProvider,
     OllamaProvider,
@@ -290,8 +291,22 @@ class SyncServer(object):
                 VLLMProvider(
                     name="vllm",
                     base_url=vllm_url,
+                    api_key=model_settings.vllm_api_key,
                     default_prompt_formatter=model_settings.default_prompt_formatter,
                     handle_base=model_settings.vllm_handle_base,
+                )
+            )
+
+        if model_settings.litellm_api_base:
+            # LiteLLM is a proxy/gateway with an OpenAI-compatible /v1 surface
+            # for inference. Discovery happens via /model/info (LiteLLM-specific),
+            # so we pass the base URL as-is — LiteLLMProvider normalizes internally.
+            self._enabled_providers.append(
+                LiteLLMProvider(
+                    name="litellm",
+                    base_url=model_settings.litellm_api_base,
+                    api_key=model_settings.litellm_api_key,
+                    handle_base=model_settings.litellm_handle_base,
                 )
             )
 

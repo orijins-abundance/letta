@@ -227,7 +227,13 @@ class ModelSettings(BaseSettings):
 
     # vLLM
     vllm_api_base: Optional[str] = None
+    vllm_api_key: Optional[str] = None
     vllm_handle_base: Optional[str] = None
+
+    # LiteLLM proxy
+    litellm_api_base: Optional[str] = None
+    litellm_api_key: Optional[str] = None
+    litellm_handle_base: Optional[str] = None
 
     # SGLang
     sglang_api_base: Optional[str] = None

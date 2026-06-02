@@ -190,6 +190,7 @@ class Provider(ProviderBase):
             GoogleVertexProvider,
             GroqProvider,
             LettaProvider,
+            LiteLLMProvider,
             LMStudioOpenAIProvider,
             MiniMaxProvider,
             MistralProvider,
@@ -228,6 +229,8 @@ class Provider(ProviderBase):
                 return OllamaProvider(**self.model_dump(exclude_none=True))
             case ProviderType.vllm:
                 return VLLMProvider(**self.model_dump(exclude_none=True))  # Removed support for CompletionsProvider
+            case ProviderType.litellm:
+                return LiteLLMProvider(**self.model_dump(exclude_none=True))
             case ProviderType.sglang:
                 return SGLangProvider(**self.model_dump(exclude_none=True))
             case ProviderType.mistral:
